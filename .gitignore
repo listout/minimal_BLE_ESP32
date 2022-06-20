@@ -1,0 +1,10 @@
+build_server
+build_client
+build
+sdkconfig
+sdkconfig.old
+.vim
+.cache
+.clangd
+managed_components
+dependencies.lock
