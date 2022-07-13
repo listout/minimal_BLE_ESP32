@@ -431,12 +431,22 @@ void parser_task(void *args)
 			ESP_LOGI(tag, "Begining OTA");
 		}
 		if (strcmp((const char *)rx_msg, "info") == 0) {
-			uint8_t *message = malloc(sizeof(uint8_t) * 50);
+			char *message = malloc(sizeof(char) * 1000);
 			if (message == NULL)
 				ESP_LOGE("BLE SPP", "Malloc failed, system out of memory");
-			snprintf(
-				(char *)message, sizeof message,
-				"sos s 0\nmag s 2\nfreq s 0.7\npair s 0\ncharger con s 0\nbatt s 0.7\n");
+			sprintf(message, "%s %d\n%s %d\n%s %lf\n%s %d\n%s %d\n%s %lf", "sos s", 0,
+				"mag s", 2, "freq s", 0.7, "pair s", 0, "charger con s", 0,
+				"batt s", 0.7);
+			printf("%s\n", message);
+
+			struct os_mbuf *om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			int rc = ble_gattc_notify_custom(connection_handle,
+							 ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
 		}
 
 		if (uxQueueMessagesWaiting(parser_queue) == 0)
