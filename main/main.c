@@ -6,6 +6,7 @@
 
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "esp_log.h"
 /* BLE */
 #include "esp_nimble_hci.h"
 #include "nimble/nimble_port.h"
@@ -25,6 +26,22 @@ QueueHandle_t spp_common_uart_queue = NULL;
 static bool is_connect = false;
 uint16_t connection_handle;
 static uint16_t ble_svc_gatt_read_val_handle, ble_spp_svc_gatt_read_val_handle;
+
+/*
+   mapping function from Arduino
+
+   Syntax: map(value, fromLow, fromHigh, toLow, toHigh)
+
+   value: the number to map.
+   fromLow: the lower bound of the value’s current range.
+   fromHigh: the upper bound of the value’s current range.
+   toLow: the lower bound of the value’s target range.
+   toHigh: the upper bound of the value’s target range.
+ */
+long map(long x, long in_min, long in_max, long out_min, long out_max)
+{
+	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
 
 /* 16 Bit Alert Notification Service UUID */
 #define BLE_SVC_ANS_UUID16 0x1811
@@ -412,6 +429,14 @@ void parser_task(void *args)
 		}
 		if (strcmp((const char *)rx_msg, "ota") == 0) {
 			ESP_LOGI(tag, "Begining OTA");
+		}
+		if (strcmp((const char *)rx_msg, "info") == 0) {
+			uint8_t *message = malloc(sizeof(uint8_t) * 50);
+			if (message == NULL)
+				ESP_LOGE("BLE SPP", "Malloc failed, system out of memory");
+			snprintf(
+				(char *)message, sizeof message,
+				"sos s 0\nmag s 2\nfreq s 0.7\npair s 0\ncharger con s 0\nbatt s 0.7\n");
 		}
 
 		if (uxQueueMessagesWaiting(parser_queue) == 0)
