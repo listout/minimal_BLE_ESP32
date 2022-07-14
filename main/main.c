@@ -462,7 +462,21 @@ void parser_task(void *args)
 
 			vTaskDelay(2000 / portTICK_PERIOD_MS);
 
-			sprintf(message, "%s %d\n%s %0.1f", "charger con s", 0, "batt s", 0.7);
+			sprintf(message, "%s %d\n", "charger con s", 0);
+			printf("%s\n", message);
+
+			om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(connection_handle,
+						     ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			sprintf(message, "%s %0.1f", "batt s", 0.7);
 			printf("%s\n", message);
 
 			om_info = NULL;
@@ -474,10 +488,10 @@ void parser_task(void *args)
 			else
 				ESP_LOGE(tag, "Notification not sent successfully");
 		}
-
-		if (uxQueueMessagesWaiting(parser_queue) == 0)
-			vTaskDelay(100 / portTICK_PERIOD_MS);
 	}
+
+	if (uxQueueMessagesWaiting(parser_queue) == 0)
+		vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 
 void app_main(void)
