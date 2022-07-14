@@ -434,15 +434,41 @@ void parser_task(void *args)
 			char *message = malloc(sizeof(char) * 1000);
 			if (message == NULL)
 				ESP_LOGE("BLE SPP", "Malloc failed, system out of memory");
-			sprintf(message, "%s %d\n%s %d\n%s %lf\n%s %d\n%s %d\n%s %lf", "sos s", 0,
-				"mag s", 2, "freq s", 0.7, "pair s", 0, "charger con s", 0,
-				"batt s", 0.7);
+			sprintf(message, "%s %d\n%s %d\n", "sos s", 0, "mag s", 2);
 			printf("%s\n", message);
 
 			struct os_mbuf *om_info = NULL;
 			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
 			int rc = ble_gattc_notify_custom(connection_handle,
 							 ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			sprintf(message, "%s %0.2f\n%s %d\n", "freq s", 0.7, "pair s", 0);
+			printf("%s\n", message);
+
+			om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(connection_handle,
+						     ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			sprintf(message, "%s %d\n%s %0.1f", "charger con s", 0, "batt s", 0.7);
+			printf("%s\n", message);
+
+			om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(connection_handle,
+						     ble_spp_svc_gatt_read_val_handle, om_info);
 			if (rc == 0)
 				ESP_LOGI(tag, "Notification sent successfully");
 			else
