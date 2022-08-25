@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <time.h>
+
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
@@ -38,7 +40,8 @@ static uint16_t ble_svc_gatt_read_val_handle, ble_spp_svc_gatt_read_val_handle;
    toLow: the lower bound of the value’s target range.
    toHigh: the upper bound of the value’s target range.
  */
-long map(long x, long in_min, long in_max, long out_min, long out_max)
+long
+map(long x, long in_min, long in_max, long out_min, long out_max)
 {
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
@@ -63,23 +66,33 @@ xQueueHandle parser_queue;
 /**
  * Logs information about a connection to the console.
  */
-static void ble_spp_server_print_conn_desc(struct ble_gap_conn_desc *desc)
+static void
+ble_spp_server_print_conn_desc(struct ble_gap_conn_desc *desc)
 {
-	MODLOG_DFLT(INFO, "handle=%d our_ota_addr_type=%d our_ota_addr=", desc->conn_handle,
-		    desc->our_ota_addr.type);
+	MODLOG_DFLT(INFO,
+	            "handle=%d our_ota_addr_type=%d our_ota_addr=",
+	            desc->conn_handle,
+	            desc->our_ota_addr.type);
 	print_addr(desc->our_ota_addr.val);
-	MODLOG_DFLT(INFO, " our_id_addr_type=%d our_id_addr=", desc->our_id_addr.type);
+	MODLOG_DFLT(
+	    INFO, " our_id_addr_type=%d our_id_addr=", desc->our_id_addr.type);
 	print_addr(desc->our_id_addr.val);
-	MODLOG_DFLT(INFO, " peer_ota_addr_type=%d peer_ota_addr=", desc->peer_ota_addr.type);
+	MODLOG_DFLT(INFO,
+	            " peer_ota_addr_type=%d peer_ota_addr=",
+	            desc->peer_ota_addr.type);
 	print_addr(desc->peer_ota_addr.val);
-	MODLOG_DFLT(INFO, " peer_id_addr_type=%d peer_id_addr=", desc->peer_id_addr.type);
+	MODLOG_DFLT(
+	    INFO, " peer_id_addr_type=%d peer_id_addr=", desc->peer_id_addr.type);
 	print_addr(desc->peer_id_addr.val);
 	MODLOG_DFLT(INFO,
-		    " conn_itvl=%d conn_latency=%d supervision_timeout=%d "
-		    "encrypted=%d authenticated=%d bonded=%d\n",
-		    desc->conn_itvl, desc->conn_latency, desc->supervision_timeout,
-		    desc->sec_state.encrypted, desc->sec_state.authenticated,
-		    desc->sec_state.bonded);
+	            " conn_itvl=%d conn_latency=%d supervision_timeout=%d "
+	            "encrypted=%d authenticated=%d bonded=%d\n",
+	            desc->conn_itvl,
+	            desc->conn_latency,
+	            desc->supervision_timeout,
+	            desc->sec_state.encrypted,
+	            desc->sec_state.authenticated,
+	            desc->sec_state.bonded);
 }
 
 /**
@@ -87,7 +100,8 @@ static void ble_spp_server_print_conn_desc(struct ble_gap_conn_desc *desc)
  *     o General discoverable mode.
  *     o Undirected connectable mode.
  */
-static void ble_spp_server_advertise(void)
+static void
+ble_spp_server_advertise(void)
 {
 	struct ble_gap_adv_params adv_params;
 	struct ble_hs_adv_fields fields;
@@ -122,7 +136,7 @@ static void ble_spp_server_advertise(void)
 	fields.name_len = strlen(name);
 	fields.name_is_complete = 1;
 
-	fields.uuids16 = (ble_uuid16_t[]){ BLE_UUID16_INIT(GATT_SVR_SVC_ALERT_UUID) };
+	fields.uuids16 = (ble_uuid16_t[]){BLE_UUID16_INIT(GATT_SVR_SVC_ALERT_UUID)};
 	fields.num_uuids16 = 1;
 	fields.uuids16_is_complete = 1;
 
@@ -136,8 +150,12 @@ static void ble_spp_server_advertise(void)
 	memset(&adv_params, 0, sizeof adv_params);
 	adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
 	adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-	rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params,
-			       ble_spp_server_gap_event, NULL);
+	rc = ble_gap_adv_start(own_addr_type,
+	                       NULL,
+	                       BLE_HS_FOREVER,
+	                       &adv_params,
+	                       ble_spp_server_gap_event,
+	                       NULL);
 	if (rc != 0) {
 		MODLOG_DFLT(ERROR, "error enabling advertisement; rc=%d\n", rc);
 		return;
@@ -159,7 +177,8 @@ static void ble_spp_server_advertise(void)
  *                                  of the return code is specific to the
  *                                  particular GAP event being signalled.
  */
-static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
+static int
+ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
 {
 	struct ble_gap_conn_desc desc;
 	int rc;
@@ -167,9 +186,10 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
 	switch (event->type) {
 	case BLE_GAP_EVENT_CONNECT:
 		/* A new connection was established or a connection attempt failed. */
-		MODLOG_DFLT(INFO, "connection %s; status=%d ",
-			    event->connect.status == 0 ? "established" : "failed",
-			    event->connect.status);
+		MODLOG_DFLT(INFO,
+		            "connection %s; status=%d ",
+		            event->connect.status == 0 ? "established" : "failed",
+		            event->connect.status);
 		if (event->connect.status == 0) {
 			rc = ble_gap_conn_find(event->connect.conn_handle, &desc);
 			assert(rc == 0);
@@ -195,7 +215,8 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
 
 	case BLE_GAP_EVENT_CONN_UPDATE:
 		/* The central has updated the connection parameters. */
-		MODLOG_DFLT(INFO, "connection updated; status=%d ", event->conn_update.status);
+		MODLOG_DFLT(
+		    INFO, "connection updated; status=%d ", event->conn_update.status);
 		rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
 		assert(rc == 0);
 		ble_spp_server_print_conn_desc(&desc);
@@ -203,13 +224,17 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
 		return 0;
 
 	case BLE_GAP_EVENT_ADV_COMPLETE:
-		MODLOG_DFLT(INFO, "advertise complete; reason=%d", event->adv_complete.reason);
+		MODLOG_DFLT(
+		    INFO, "advertise complete; reason=%d", event->adv_complete.reason);
 		ble_spp_server_advertise();
 		return 0;
 
 	case BLE_GAP_EVENT_MTU:
-		MODLOG_DFLT(INFO, "mtu update event; conn_handle=%d cid=%d mtu=%d\n",
-			    event->mtu.conn_handle, event->mtu.channel_id, event->mtu.value);
+		MODLOG_DFLT(INFO,
+		            "mtu update event; conn_handle=%d cid=%d mtu=%d\n",
+		            event->mtu.conn_handle,
+		            event->mtu.channel_id,
+		            event->mtu.value);
 		return 0;
 
 	default:
@@ -217,12 +242,14 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
 	}
 }
 
-static void ble_spp_server_on_reset(int reason)
+static void
+ble_spp_server_on_reset(int reason)
 {
 	MODLOG_DFLT(ERROR, "Resetting state; reason=%d\n", reason);
 }
 
-static void ble_spp_server_on_sync(void)
+static void
+ble_spp_server_on_sync(void)
 {
 	int rc;
 
@@ -237,7 +264,7 @@ static void ble_spp_server_on_sync(void)
 	}
 
 	/* Printing ADDR */
-	uint8_t addr_val[6] = { 0 };
+	uint8_t addr_val[6] = {0};
 	rc = ble_hs_id_copy_addr(own_addr_type, addr_val, NULL);
 
 	MODLOG_DFLT(INFO, "Device Address: ");
@@ -247,7 +274,8 @@ static void ble_spp_server_on_sync(void)
 	ble_spp_server_advertise();
 }
 
-void ble_spp_server_host_task(void *param)
+void
+ble_spp_server_host_task(void *param)
 {
 	ESP_LOGI(tag, "BLE Host Task Started");
 	/* This function will return only when nimble_port_stop() is executed */
@@ -257,8 +285,11 @@ void ble_spp_server_host_task(void *param)
 }
 
 /* Callback function for custom service */
-static int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
-				struct ble_gatt_access_ctxt *ctxt, void *arg)
+static int
+ble_svc_gatt_handler(uint16_t conn_handle,
+                     uint16_t attr_handle,
+                     struct ble_gatt_access_ctxt *ctxt,
+                     void *arg)
 {
 	switch (ctxt->op) {
 	case BLE_GATT_ACCESS_OP_READ_CHR:
@@ -285,49 +316,50 @@ static int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
 
 /* Define new custom service */
 static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
-	{
-		/*** Service: GATT */
-		.type = BLE_GATT_SVC_TYPE_PRIMARY,
-		.uuid = BLE_UUID16_DECLARE(BLE_SVC_ANS_UUID16),
-		.characteristics =
-			(struct ble_gatt_chr_def[]){
-				{
-					/* Support new alert category */
-					.uuid = BLE_UUID16_DECLARE(
-						BLE_SVC_ANS_CHR_UUID16_SUP_NEW_ALERT_CAT),
-					.access_cb = ble_svc_gatt_handler,
-					.val_handle = &ble_svc_gatt_read_val_handle,
-					.flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
-						 BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
-				},
-				{
-					0, /* No more characteristics */
-				} },
-	},
-	{
-		/*** Service: SPP */
-		.type = BLE_GATT_SVC_TYPE_PRIMARY,
-		.uuid = BLE_UUID16_DECLARE(BLE_SVC_SPP_UUID16),
-		.characteristics =
-			(struct ble_gatt_chr_def[]){
-				{
-					/* Support SPP service */
-					.uuid = BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16),
-					.access_cb = ble_svc_gatt_handler,
-					.val_handle = &ble_spp_svc_gatt_read_val_handle,
-					.flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
-						 BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
-				},
-				{
-					0, /* No more characteristics */
-				} },
-	},
-	{
-		0, /* No more services. */
-	},
+    {
+        /*** Service: GATT */
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(BLE_SVC_ANS_UUID16),
+        .characteristics =
+            (struct ble_gatt_chr_def[]){
+                {
+                    /* Support new alert category */
+                    .uuid = BLE_UUID16_DECLARE(
+                        BLE_SVC_ANS_CHR_UUID16_SUP_NEW_ALERT_CAT),
+                    .access_cb = ble_svc_gatt_handler,
+                    .val_handle = &ble_svc_gatt_read_val_handle,
+                    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
+                             BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
+                },
+                {
+                    0, /* No more characteristics */
+                }},
+    },
+    {
+        /*** Service: SPP */
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(BLE_SVC_SPP_UUID16),
+        .characteristics =
+            (struct ble_gatt_chr_def[]){
+                {
+                    /* Support SPP service */
+                    .uuid = BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16),
+                    .access_cb = ble_svc_gatt_handler,
+                    .val_handle = &ble_spp_svc_gatt_read_val_handle,
+                    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE |
+                             BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_INDICATE,
+                },
+                {
+                    0, /* No more characteristics */
+                }},
+    },
+    {
+        0, /* No more services. */
+    },
 };
 
-int gatt_svr_register(void)
+int
+gatt_svr_register(void)
 {
 	int rc = 0;
 
@@ -345,15 +377,17 @@ int gatt_svr_register(void)
 	return 0;
 }
 
-void ble_server_uart_task(void *pvParameters)
+void
+ble_server_uart_task(void *pvParameters)
 {
 	ESP_LOGI(tag, "BLE server UART_task started\n");
 	uart_event_t event;
 	int rc = 0;
 	for (;;) {
 		//Waiting for UART event.
-		if (xQueueReceive(spp_common_uart_queue, (void *)&event,
-				  (portTickType)portMAX_DELAY)) {
+		if (xQueueReceive(spp_common_uart_queue,
+		                  (void *)&event,
+		                  (portTickType)portMAX_DELAY)) {
 			switch (event.type) {
 			//Event of UART receving data
 			case UART_DATA:
@@ -363,8 +397,9 @@ void ble_server_uart_task(void *pvParameters)
 					struct os_mbuf *txom;
 					txom = ble_hs_mbuf_from_flat(ntf, sizeof(ntf));
 					rc = ble_gattc_notify_custom(
-						connection_handle, ble_spp_svc_gatt_read_val_handle,
-						txom);
+					    connection_handle,
+					    ble_spp_svc_gatt_read_val_handle,
+					    txom);
 					if (rc == 0) {
 						ESP_LOGI(tag, "Notification sent successfully");
 					} else {
@@ -379,32 +414,45 @@ void ble_server_uart_task(void *pvParameters)
 	}
 	vTaskDelete(NULL);
 }
-static void ble_spp_uart_init(void)
+static void
+ble_spp_uart_init(void)
 {
 	uart_config_t uart_config = {
-		.baud_rate = 115200,
-		.data_bits = UART_DATA_8_BITS,
-		.parity = UART_PARITY_DISABLE,
-		.stop_bits = UART_STOP_BITS_1,
-		.flow_ctrl = UART_HW_FLOWCTRL_RTS,
-		.rx_flow_ctrl_thresh = 122,
-		.source_clk = UART_SCLK_APB,
+	    .baud_rate = 115200,
+	    .data_bits = UART_DATA_8_BITS,
+	    .parity = UART_PARITY_DISABLE,
+	    .stop_bits = UART_STOP_BITS_1,
+	    .flow_ctrl = UART_HW_FLOWCTRL_RTS,
+	    .rx_flow_ctrl_thresh = 122,
+	    .source_clk = UART_SCLK_APB,
 	};
 	//Install UART driver, and get the queue.
 	uart_driver_install(UART_NUM_0, 4096, 8192, 10, &spp_common_uart_queue, 0);
 	//Set UART parameters
 	uart_param_config(UART_NUM_0, &uart_config);
 	//Set UART pins
-	uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE,
-		     UART_PIN_NO_CHANGE);
-	xTaskCreate(ble_server_uart_task, "uTask", 2048, (void *)UART_NUM_0, 8, NULL);
+	uart_set_pin(UART_NUM_0,
+	             UART_PIN_NO_CHANGE,
+	             UART_PIN_NO_CHANGE,
+	             UART_PIN_NO_CHANGE,
+	             UART_PIN_NO_CHANGE);
+	xTaskCreate(
+	    ble_server_uart_task, "uTask", 2048, (void *)UART_NUM_0, 8, NULL);
 }
 
-void parser_task(void *args)
+void
+parser_task(void *args)
 {
+	double x = 0.0;
+	double y = 1.0;
+	srand(time(NULL));
+
+	// Guarenateed keep x1 between x and y.
 	uint8_t rx_msg[20];
 	for (;;) {
-		if (xQueueReceive(parser_queue, rx_msg, 6000 / portTICK_PERIOD_MS) != pdTRUE)
+		double x1 = x + rand() * (y - x) / RAND_MAX;
+		if (xQueueReceive(parser_queue, rx_msg, 6000 / portTICK_PERIOD_MS) !=
+		    pdTRUE)
 			continue;
 		if (strstr((const char *)rx_msg, "freq") != NULL) {
 			ESP_LOGI(tag, "Got frequency: %s", (const char *)rx_msg);
@@ -439,8 +487,8 @@ void parser_task(void *args)
 
 			struct os_mbuf *om_info = NULL;
 			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
-			int rc = ble_gattc_notify_custom(connection_handle,
-							 ble_spp_svc_gatt_read_val_handle, om_info);
+			int rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
 			if (rc == 0)
 				ESP_LOGI(tag, "Notification sent successfully");
 			else
@@ -453,8 +501,8 @@ void parser_task(void *args)
 
 			om_info = NULL;
 			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
-			rc = ble_gattc_notify_custom(connection_handle,
-						     ble_spp_svc_gatt_read_val_handle, om_info);
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
 			if (rc == 0)
 				ESP_LOGI(tag, "Notification sent successfully");
 			else
@@ -467,8 +515,8 @@ void parser_task(void *args)
 
 			om_info = NULL;
 			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
-			rc = ble_gattc_notify_custom(connection_handle,
-						     ble_spp_svc_gatt_read_val_handle, om_info);
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
 			if (rc == 0)
 				ESP_LOGI(tag, "Notification sent successfully");
 			else
@@ -476,13 +524,66 @@ void parser_task(void *args)
 
 			vTaskDelay(2000 / portTICK_PERIOD_MS);
 
-			sprintf(message, "%s %0.1f", "batt s", 0.7);
+			sprintf(message, "%s %0.1f\n", "batt s", x1);
 			printf("%s\n", message);
 
 			om_info = NULL;
 			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
-			rc = ble_gattc_notify_custom(connection_handle,
-						     ble_spp_svc_gatt_read_val_handle, om_info);
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			sprintf(message, "%s %d\n%s %d\n", "sos c", 0, "mag c", 2);
+			printf("%s\n", message);
+
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			sprintf(message, "%s %0.2f\n%s %d\n", "freq c", 0.7, "pair c", 0);
+			printf("%s\n", message);
+
+			om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			sprintf(message, "%s %d\n", "charger con c", 0);
+			printf("%s\n", message);
+
+			om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			sprintf(message, "%s %0.1f", "batt c", x1);
+			printf("%s\n", message);
+
+			om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
 			if (rc == 0)
 				ESP_LOGI(tag, "Notification sent successfully");
 			else
@@ -494,13 +595,15 @@ void parser_task(void *args)
 		vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 
-void app_main(void)
+void
+app_main(void)
 {
 	int rc;
 
 	/* Initialize NVS — it is used to store PHY calibration data */
 	esp_err_t ret = nvs_flash_init();
-	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+	if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+	    ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
 		ESP_ERROR_CHECK(nvs_flash_erase());
 		ret = nvs_flash_init();
 	}
