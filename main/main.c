@@ -4,11 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdio.h>
+#include <string.h>
 #include <time.h>
 
-#include "esp_log.h"
-#include "nvs_flash.h"
-#include "esp_log.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/event_groups.h>
+
+#include <esp_log.h>
+#include <esp_wifi.h>
+#include <esp_event.h>
+#include <nvs_flash.h>
+
+#include "lwip/err.h"
+#include "lwip/sys.h"
 /* BLE */
 #include "esp_nimble_hci.h"
 #include "nimble/nimble_port.h"
@@ -28,7 +38,100 @@ QueueHandle_t spp_common_uart_queue = NULL;
 static bool is_connect = false;
 uint16_t connection_handle;
 static uint16_t ble_svc_gatt_read_val_handle, ble_spp_svc_gatt_read_val_handle;
+char ssid[32], pswd[32];
 
+#define ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA2_PSK
+
+/* FreeRTOS event group to signal when we are connected*/
+static EventGroupHandle_t s_wifi_event_group;
+
+/* The event group allows multiple bits for each event, but we only care about two events:
+ * - we are connected to the AP with an IP
+ * - we failed to connect after the maximum amount of retries */
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT BIT1
+
+static int s_retry_num = 0;
+
+static void
+event_handler(void *arg,
+              esp_event_base_t event_base,
+              int32_t event_id,
+              void *event_data)
+{
+	if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
+		esp_wifi_connect();
+	} else if (event_base == WIFI_EVENT &&
+	           event_id == WIFI_EVENT_STA_DISCONNECTED) {
+		if (s_retry_num < 5) {
+			esp_wifi_connect();
+			s_retry_num++;
+			ESP_LOGI(tag, "retry to connect to the AP");
+		} else {
+			xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+		}
+		ESP_LOGI(tag, "connect to the AP fail");
+	} else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+		ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+		ESP_LOGI(tag, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
+		s_retry_num = 0;
+		xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+	}
+}
+
+void
+wifi_init_sta(char *ssid, char *pswd)
+{
+
+	esp_event_handler_instance_t instance_any_id;
+	esp_event_handler_instance_t instance_got_ip;
+	ESP_ERROR_CHECK(esp_event_handler_instance_register(
+	    WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &instance_any_id));
+	ESP_ERROR_CHECK(esp_event_handler_instance_register(
+	    IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, &instance_got_ip));
+
+	wifi_config_t wifi_config = {
+	    .sta =
+	        {
+	            /* Setting a password implies station will connect to all security modes including WEP/WPA.
+				 * However these modes are deprecated and not advisable to be used. Incase your Access point
+				 * doesn't support WPA2, these mode can be enabled by commenting below line */
+	            .threshold.authmode = ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD,
+	        },
+	};
+
+	strncpy((char *)wifi_config.sta.ssid, ssid, 32);
+	strncpy((char *)wifi_config.sta.password, pswd, 32);
+	ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+	ESP_ERROR_CHECK(esp_wifi_start());
+
+	ESP_LOGI(tag, "wifi_init_sta finished.");
+
+	/* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
+     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
+	EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+	                                       WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+	                                       pdFALSE,
+	                                       pdFALSE,
+	                                       portMAX_DELAY);
+
+	/* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
+     * happened. */
+	if (bits & WIFI_CONNECTED_BIT) {
+		ESP_LOGI(tag, "connected to ap SSID:%s password:%s", ssid, pswd);
+	} else if (bits & WIFI_FAIL_BIT) {
+		ESP_LOGI(tag,
+		         "Failed to connect to SSID:%s, password:%s",
+		         (char *)wifi_config.sta.ssid,
+		         (char *)wifi_config.sta.password);
+		s_retry_num = 0;
+		strncpy((char *)wifi_config.sta.ssid, "", 32);
+		strncpy((char *)wifi_config.sta.password, "", 32);
+	} else {
+		ESP_LOGE(tag, "UNEXPECTED EVENT");
+	}
+}
 /*
    mapping function from Arduino
 
@@ -378,69 +481,6 @@ gatt_svr_register(void)
 }
 
 void
-ble_server_uart_task(void *pvParameters)
-{
-	ESP_LOGI(tag, "BLE server UART_task started\n");
-	uart_event_t event;
-	int rc = 0;
-	for (;;) {
-		//Waiting for UART event.
-		if (xQueueReceive(spp_common_uart_queue,
-		                  (void *)&event,
-		                  (portTickType)portMAX_DELAY)) {
-			switch (event.type) {
-			//Event of UART receving data
-			case UART_DATA:
-				if (event.size && (is_connect == true)) {
-					static uint8_t ntf[1];
-					ntf[0] = 90;
-					struct os_mbuf *txom;
-					txom = ble_hs_mbuf_from_flat(ntf, sizeof(ntf));
-					rc = ble_gattc_notify_custom(
-					    connection_handle,
-					    ble_spp_svc_gatt_read_val_handle,
-					    txom);
-					if (rc == 0) {
-						ESP_LOGI(tag, "Notification sent successfully");
-					} else {
-						ESP_LOGI(tag, "Error in sending notification");
-					}
-				}
-				break;
-			default:
-				break;
-			}
-		}
-	}
-	vTaskDelete(NULL);
-}
-static void
-ble_spp_uart_init(void)
-{
-	uart_config_t uart_config = {
-	    .baud_rate = 115200,
-	    .data_bits = UART_DATA_8_BITS,
-	    .parity = UART_PARITY_DISABLE,
-	    .stop_bits = UART_STOP_BITS_1,
-	    .flow_ctrl = UART_HW_FLOWCTRL_RTS,
-	    .rx_flow_ctrl_thresh = 122,
-	    .source_clk = UART_SCLK_APB,
-	};
-	//Install UART driver, and get the queue.
-	uart_driver_install(UART_NUM_0, 4096, 8192, 10, &spp_common_uart_queue, 0);
-	//Set UART parameters
-	uart_param_config(UART_NUM_0, &uart_config);
-	//Set UART pins
-	uart_set_pin(UART_NUM_0,
-	             UART_PIN_NO_CHANGE,
-	             UART_PIN_NO_CHANGE,
-	             UART_PIN_NO_CHANGE,
-	             UART_PIN_NO_CHANGE);
-	xTaskCreate(
-	    ble_server_uart_task, "uTask", 2048, (void *)UART_NUM_0, 8, NULL);
-}
-
-void
 parser_task(void *args)
 {
 	double x = 0.0;
@@ -450,7 +490,6 @@ parser_task(void *args)
 	// Guarenateed keep x1 between x and y.
 	uint8_t rx_msg[20];
 	for (;;) {
-		double x1 = x + rand() * (y - x) / RAND_MAX;
 		if (xQueueReceive(parser_queue, rx_msg, 6000 / portTICK_PERIOD_MS) !=
 		    pdTRUE)
 			continue;
@@ -476,7 +515,21 @@ parser_task(void *args)
 			ESP_LOGI(tag, "Begining upload");
 		}
 		if (strcmp((const char *)rx_msg, "ota") == 0) {
-			ESP_LOGI(tag, "Begining OTA");
+			ESP_LOGI(tag, "Begining ota");
+		}
+		if (strstr((const char *)rx_msg, "ssid") != NULL) {
+			char temp_message[5];
+			sscanf((const char *)rx_msg, "%s %s", temp_message, ssid);
+			ESP_LOGI(tag, "Got SSID: %s", ssid);
+		}
+		if (strstr((const char *)rx_msg, "pswd") != NULL) {
+			char temp_message[5];
+			sscanf((const char *)rx_msg, "%s %s", temp_message, pswd);
+			ESP_LOGI(tag, "Got Password: %s", pswd);
+		}
+		if (strcmp((const char *)rx_msg, "wifi") == 0) {
+			ESP_LOGI(tag, "ESP_WIFI_MODE_STA");
+			wifi_init_sta(ssid, pswd);
 		}
 		if (strcmp((const char *)rx_msg, "info") == 0) {
 			char *message = malloc(sizeof(char) * 1000);
@@ -484,6 +537,8 @@ parser_task(void *args)
 				ESP_LOGE("BLE SPP", "Malloc failed, system out of memory");
 			sprintf(message, "%s %d\n%s %d\n", "sos s", 0, "mag s", 2);
 			printf("%s\n", message);
+
+			/* Server messages for Info command*/
 
 			struct os_mbuf *om_info = NULL;
 			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
@@ -524,6 +579,7 @@ parser_task(void *args)
 
 			vTaskDelay(2000 / portTICK_PERIOD_MS);
 
+			double x1 = x + rand() * (y - x) / RAND_MAX;
 			sprintf(message, "%s %0.1f\n", "batt s", x1);
 			printf("%s\n", message);
 
@@ -536,9 +592,11 @@ parser_task(void *args)
 			else
 				ESP_LOGE(tag, "Notification not sent successfully");
 
-			sprintf(message, "%s %d\n%s %d\n", "sos c", 0, "mag c", 2);
+			x1 = x + rand() * (8.0 - 0.5) / RAND_MAX;
+			sprintf(message, "%s %0.2f\n", "remaining space s", x1);
 			printf("%s\n", message);
 
+			om_info = NULL;
 			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
 			rc = ble_gattc_notify_custom(
 			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
@@ -546,6 +604,13 @@ parser_task(void *args)
 				ESP_LOGI(tag, "Notification sent successfully");
 			else
 				ESP_LOGE(tag, "Notification not sent successfully");
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			/* Client messages for Info command*/
+
+			sprintf(message, "%s %d\n%s %d\n", "sos c", 0, "mag c", 2);
+			printf("%s\n", message);
 
 			vTaskDelay(2000 / portTICK_PERIOD_MS);
 
@@ -577,7 +642,23 @@ parser_task(void *args)
 
 			vTaskDelay(2000 / portTICK_PERIOD_MS);
 
-			sprintf(message, "%s %0.1f", "batt c", x1);
+			x1 = x + rand() * (y - x) / RAND_MAX;
+			sprintf(message, "%s %0.1f\n", "batt c", x1);
+			printf("%s\n", message);
+
+			vTaskDelay(2000 / portTICK_PERIOD_MS);
+
+			om_info = NULL;
+			om_info = ble_hs_mbuf_from_flat(message, strlen(message));
+			rc = ble_gattc_notify_custom(
+			    connection_handle, ble_spp_svc_gatt_read_val_handle, om_info);
+			if (rc == 0)
+				ESP_LOGI(tag, "Notification sent successfully");
+			else
+				ESP_LOGE(tag, "Notification not sent successfully");
+
+			x1 = x + rand() * (8.0 - 0.5) / RAND_MAX;
+			sprintf(message, "%s %0.2f\n", "remaining space c", x1);
 			printf("%s\n", message);
 
 			om_info = NULL;
@@ -609,17 +690,24 @@ app_main(void)
 	}
 	ESP_ERROR_CHECK(ret);
 
+	s_wifi_event_group = xEventGroupCreate();
+
+	ESP_ERROR_CHECK(esp_netif_init());
+
+	ESP_ERROR_CHECK(esp_event_loop_create_default());
+	esp_netif_create_default_wifi_sta();
+
+	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+	ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
 	ESP_ERROR_CHECK(esp_nimble_hci_and_controller_init());
 
 	nimble_port_init();
 
-	/* Initialize uart driver and start uart task */
-	ble_spp_uart_init();
-
 	/* Initialize the NimBLE host configuration. */
 	ble_hs_cfg.reset_cb = ble_spp_server_on_reset;
 	ble_hs_cfg.sync_cb = ble_spp_server_on_sync;
-	ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
+	ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb_spp;
 	ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
 	ble_hs_cfg.sm_io_cap = CONFIG_EXAMPLE_IO_TYPE;

@@ -154,7 +154,7 @@ gatt_svr_chr_access_sec_test(uint16_t conn_handle, uint16_t attr_handle,
 }
 
 void
-gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg)
+gatt_svr_register_cb_spp(struct ble_gatt_register_ctxt *ctxt, void *arg)
 {
     char buf[BLE_UUID_STR_LEN];
 
