@@ -1,7 +1,7 @@
 AlignAfterOpenBracket: true
 AlignConsecutiveAssignments: false
 AlignOperands: true
-AlignTrailingComments: false
+AlignTrailingComments: true
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: false
 AllowShortIfStatementsOnASingleLine: false
@@ -10,11 +10,11 @@ BinPackArguments: false
 BinPackParameters: false
 BreakBeforeBraces: Linux
 IncludeBlocks: Regroup
-ReflowComments: false
+ReflowComments: true
 SortIncludes: false
 UseTab: ForIndentation
 IndentWidth: 4
 TabWidth: 4
-ColumnLimit: 80
+ColumnLimit: 120
 
 NamespaceIndentation: All
